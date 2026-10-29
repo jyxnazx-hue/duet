@@ -1,0 +1,444 @@
+@import "@tldraw/tldraw/tldraw.css";
+
+/* 1. COMPLETELY REMOVE TLDRAW WATERMARK & DEFAULT NAVIGATION/ZOOM */
+.tlui-watermark,
+.tl-watermark,
+[data-testid="watermark"],
+a[href*="tldraw.dev"],
+.tlui-layout__watermark,
+.tlui-navigation-zone,
+[data-testid="tools.navigation-zone"] {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* 2. THEME OVERRIDE: CHANGE SELECTION BLUE TO DARK BROWN */
+:root {
+  --color-selected: #2A1D17 !important;
+  --color-selected-contrast: #FAF7F2 !important;
+  --color-primary: #2A1D17 !important;
+  --color-accent: #2A1D17 !important;
+
+  --bg-main: #FBF9F5;
+  --bg-surface: #FFFFFF;
+  --border: #E8E2D7;
+  --border-light: #F0ECE4;
+  --accent-brown: #2A1D17;
+  --accent-brown-hover: #3E2B21;
+  --accent-warm: #C85A32;
+  --text-primary: #1C1613;
+  --text-muted: #827871;
+  --surface-active: #EFE9DF;
+}
+
+/* Force dark brown on active tldraw toolbar tool icons */
+.tlui-toolbar [data-state="selected"],
+.tlui-toolbar button[aria-checked="true"],
+.tlui-button[data-state="selected"],
+.tlui-toolbar__tools .tlui-button--tool[aria-checked="true"],
+.tlui-button[data-state="active"] {
+  background-color: var(--accent-brown) !important;
+  color: #FAF7F2 !important;
+}
+
+.tlui-toolbar [data-state="selected"] svg,
+.tlui-toolbar button[aria-checked="true"] svg {
+  color: #FAF7F2 !important;
+  fill: currentColor !important;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* --- HEADER --- */
+.top-header {
+  height: 50px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  z-index: 20;
+}
+
+.header-left, .header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--accent-brown);
+  color: #FAF7F2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tabs-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tab-item {
+  padding: 6px 14px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  background: transparent;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.tab-item:hover {
+  background: #F4EFEB;
+  color: var(--text-primary);
+}
+
+.tab-item.active {
+  background: var(--surface-active);
+  color: var(--accent-brown);
+  font-weight: 600;
+}
+
+.tab-input {
+  background: #FFF;
+  border: 1px solid var(--accent-brown);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent-brown);
+  outline: none;
+}
+
+.add-tab-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.add-tab-btn:hover {
+  border-color: var(--accent-brown);
+  color: var(--accent-brown);
+}
+
+.mode-toggle-group {
+  display: flex;
+  background: #F3EFE9;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.mode-btn.active {
+  background: #FFF;
+  color: var(--accent-brown);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+
+.voice-pill-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #FFF;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.voice-pill-btn.listening {
+  background: #FEF3EE;
+  border-color: var(--accent-warm);
+  color: var(--accent-warm);
+  font-weight: 600;
+}
+
+.live-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-warm);
+  animation: pulse 1.2s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
+
+/* --- MAIN WORKSPACE --- */
+.main-body {
+  display: flex;
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Chapter Sidebar (No Horizontal Scrollbar) */
+.chapter-sidebar {
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 10;
+  overflow-x: hidden !important;
+}
+
+.chapter-sidebar.closed {
+  width: 44px;
+}
+
+.chapter-sidebar.open {
+  width: 250px;
+}
+
+.chapter-sidebar-header {
+  height: 44px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-light);
+  cursor: pointer;
+}
+
+.sidebar-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.chapter-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden !important;
+  padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  scrollbar-width: none; /* Firefox */
+}
+
+.chapter-list::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
+.chapter-card {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.chapter-card:hover {
+  background: #FAF7F2;
+}
+
+.chapter-card.active {
+  background: var(--surface-active);
+  border-color: var(--border);
+}
+
+.chapter-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-brown);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chapter-card-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chapter-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  margin: 2px auto;
+  transition: all 0.15s ease;
+}
+
+.chapter-icon-btn:hover {
+  background: #F4EFEB;
+  color: var(--text-primary);
+}
+
+.chapter-icon-btn.active {
+  background: var(--surface-active);
+  color: var(--accent-brown);
+  border-color: var(--border);
+  font-weight: 700;
+}
+
+.add-chapter-btn {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* Canvas Area */
+.canvas-wrapper {
+  flex: 1;
+  position: relative;
+  height: 100%;
+}
+
+/* Centered Top Floating Action Bar (Undo, Redo, Clear) */
+.centered-action-bar {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #FFFFFF;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 3px 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  z-index: 100;
+}
+
+.bar-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-muted);
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.bar-btn:hover {
+  background: #F4EFEB;
+  color: var(--text-primary);
+}
+
+.bar-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-light);
+  margin: 0 3px;
+}
+
+.page-indicator-pill {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-brown);
+  padding: 0 8px;
+  cursor: default;
+}
+
+/* Simple Clean Bottom-Left Zoom Percentage (Only Plain Number) */
+.simple-zoom-indicator {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  z-index: 100;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  user-select: none;
+  padding: 2px 4px;
+}
+
+.simple-zoom-indicator:hover {
+  color: var(--accent-brown);
+}
