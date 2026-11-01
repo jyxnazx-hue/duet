@@ -113,7 +113,8 @@ class Orchestrator:
     async def on_final(self, text: str, confidence: float = 1.0):
         self._interjected_for.clear()
         self.canvas.reset_turn()
-        await self.s.on_user_final(text)
+        await self.s.execute_turn(text)
+        
 
     @staticmethod
     def detect_drift(text: str, confidence: float):
