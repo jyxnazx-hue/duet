@@ -62,7 +62,7 @@ export function useDuetAgent({ onCanvasAction, onInterject, onSubtitle } = {}) {
 
   useEffect(() => {
     let isMounted = true;
-    const ws = new WebSocket('ws://localhost:8000/ws/live');
+    const ws = new WebSocket('wss://operative-implant-handset.ngrok-free.dev/ws/live');
     ws.binaryType = 'arraybuffer';
     socketRef.current = ws;
 
@@ -113,7 +113,7 @@ export function useDuetAgent({ onCanvasAction, onInterject, onSubtitle } = {}) {
                 const utterance = new SpeechSynthesisUtterance(cleanSpeech);
                 utterance.rate = 1.05;
                 utterance.pitch = 1.0;
-                window.speechSynthesis.speak(utterance);
+                // window.speechSynthesis.speak(utterance);
               }
             }
             break;
@@ -125,8 +125,36 @@ export function useDuetAgent({ onCanvasAction, onInterject, onSubtitle } = {}) {
             break;
 
           case 'canvas_action':
-            if (onCanvasAction) onCanvasAction(msg.action);
-            break;
+            // Inside ws.onmessage in useDuetAgent.js:
+if (payload.type === 'canvas_action' && editor) {
+  const { action } = payload;
+  if (action.type === 'draw_formula' && action.formula) {
+    editor.createShape({
+      type: 'geo',
+      x: 320,
+      y: 220,
+      props: {
+        geo: 'rectangle',
+        w: 420,
+        h: 120,
+        color: 'light-blue',
+        fill: 'semi',
+        dash: 'draw'
+      }
+    });
+
+    editor.createShape({
+      type: 'text',
+      x: 340,
+      y: 255,
+      props: {
+        text: action.formula,
+        size: 'l',
+        color: 'blue'
+      }
+    });
+  }
+}
 
           default:
             break;
