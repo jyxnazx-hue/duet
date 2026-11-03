@@ -1,87 +1,140 @@
+import os
+import re
 import json
-import io
-import wave
 import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from agent.brain import query_meta_brain
-from agent.audio import transcribe_audio, speak_text
+from dotenv import load_dotenv
 
-app = FastAPI(title="Duet Live Agent")
+load_dotenv()
 
+from session import DuetSession
+from meta_client import stream_meta_reasoning
+from voice_engine import stream_audio_chunks, split_into_spoken_clauses
+from prompt import SYSTEM_PROMPT
+
+app = FastAPI(title="Duet Live Agent Gateway")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
 
-@app.websocket("/ws/live")
-async def websocket_endpoint(ws: WebSocket):
+@app.get("/")
+async def root():
+    return {"status": "ok", "app": "Duet Live Agent"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "duet-agent"}
+
+@app.get("/v1/models")
+async def list_models():
+    return {
+        "object": "list",
+        "data": [
+            {"id": "muse-spark-1.3", "object": "model", "owned_by": "meta"}
+        ]
+    }
+
+@app.websocket("/ws/session")
+async def handle_duet_session(ws: WebSocket):
     await ws.accept()
-    print("Interface connected via WebSocket!")
-    
-    audio_buffer = bytearray()
-    
+    print("✓ Student connected to Duet live whiteboard session.")
+
+    session = DuetSession(system_prompt=SYSTEM_PROMPT)
+    active_turn_task = None
+
+    async def execute_turn(user_text: str):
+        if not user_text.strip():
+            return
+
+        session.add_user_message(user_text)
+        await ws.send_text(json.dumps({"type": "state", "state": "THINKING"}))
+
+        full_raw_reply = ""
+        context_messages = session.get_contextual_prompt_messages()
+
+        try:
+            async for token in stream_meta_reasoning(context_messages):
+                full_raw_reply += token
+
+            # Parse drawing and note tool directives
+            draw_matches = re.findall(r"\[\[DRAW:\s*(.*?)\]\]", full_raw_reply)
+            note_matches = re.findall(r"\[\[NOTE:\s*(.*?)\]\]", full_raw_reply)
+
+            spoken_text = re.sub(r"\[\[(DRAW|NOTE):\s*.*?\]\]", "", full_raw_reply).strip()
+            session.add_assistant_message(spoken_text)
+
+            # 1. Dispatch Whiteboard Tools
+            for formula in draw_matches:
+                session.register_board_artifact("formula", formula.strip())
+                await ws.send_text(json.dumps({
+                    "type": "canvas_tool",
+                    "action": "draw_formula",
+                    "payload": {"formula": formula.strip()}
+                }))
+
+            for note in note_matches:
+                session.register_board_artifact("note", note.strip())
+                await ws.send_text(json.dumps({
+                    "type": "canvas_tool",
+                    "action": "create_note",
+                    "payload": {"text": note.strip()}
+                }))
+
+            # 2. Dispatch Spoken Content
+            await ws.send_text(json.dumps({"type": "state", "state": "SPEAKING"}))
+            await ws.send_text(json.dumps({"type": "spoken_transcript", "text": spoken_text}))
+
+            # 3. Stream Voice (Clause by Clause)
+            has_voice = False
+            for clause in split_into_spoken_clauses(spoken_text):
+                async for audio_chunk in stream_audio_chunks(clause):
+                    has_voice = True
+                    await ws.send_bytes(audio_chunk)
+
+            if not has_voice:
+                await ws.send_text(json.dumps({"type": "audio_fallback", "text": spoken_text}))
+
+            await ws.send_text(json.dumps({"type": "state", "state": "LISTENING"}))
+
+        except asyncio.CancelledError:
+            print("Turn interrupted by user (Barge-in).")
+            await ws.send_text(json.dumps({"type": "interrupt_ack"}))
+            raise
+
     try:
         while True:
             msg = await ws.receive()
-            
+            # Clean exit on client disconnect
             if msg.get("type") == "websocket.disconnect":
                 break
-                
-            # Receive binary audio chunks from the React frontend
-            if "bytes" in msg and msg["bytes"]:
-                audio_buffer.extend(msg["bytes"])
-                
-            # If the interface sends a JSON message (e.g., end of turn)
-            elif "text" in msg and msg["text"]:
-                data = json.loads(msg["text"])
-                
-                if data.get("type") == "end_turn":
-                    if len(audio_buffer) == 0:
-                        continue
-                        
-                    # Save the buffered audio to a temp WAV file for Meta ASR
-                    temp_file = "temp_input.wav"
-                    with wave.open(temp_file, 'wb') as wf:
-                        wf.setnchannels(1)
-                        wf.setsampwidth(2)
-                        wf.setframerate(24000) # Frontend must send 24kHz
-                        wf.writeframes(audio_buffer)
-                    
-                    audio_buffer.clear()
-                    
-                    # 1. Transcribe (Ears)
-                    await ws.send_json({"type": "state", "state": "THINKING"})
-                    user_text = await transcribe_audio(temp_file)
-                    print(f"User: {user_text}")
-                    
-                    if not user_text:
-                        await ws.send_json({"type": "state", "state": "LISTENING"})
-                        continue
-                        
-                    # 2. Reason (Brain)
-                    response = await query_meta_brain(user_text)
-                    speech = response.get("speech", "")
-                    actions = response.get("canvas_actions", [])
-                    
-                    # 3. Send Canvas Actions to Interface
-                    if actions:
-                        await ws.send_json({
-                            "type": "canvas_action",
-                            "actions": actions
-                        })
-                        
-                    # 4. Send Speech Text to Interface (React handles TTS via browser or we stream audio)
-                    # For now, we send the text so the browser can use its native SpeechSynthesis
-                    await ws.send_json({
-                        "type": "speak",
-                        "text": speech
-                    })
-                    
-                    await ws.send_json({"type": "state", "state": "LISTENING"})
-                    
-    except WebSocketDisconnect:
-        print("Interface disconnected.")
+
+            if "text" in msg:
+                event = json.loads(msg["text"])
+                event_type = event.get("type")
+
+                if event_type in ("barge_in", "interrupt"):
+                    if active_turn_task and not active_turn_task.done():
+                        active_turn_task.cancel()
+                    await ws.send_text(json.dumps({"type": "state", "state": "LISTENING"}))
+
+                elif event_type == "user_message":
+                    if active_turn_task and not active_turn_task.done():
+                        active_turn_task.cancel()
+                    active_turn_task = asyncio.create_task(execute_turn(event.get("text", "")))
+
+    except (WebSocketDisconnect, RuntimeError):
+        print("Session disconnected.")
+    finally:
+        if active_turn_task and not active_turn_task.done():
+            active_turn_task.cancel()
+
+    
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -1,57 +1,51 @@
-import asyncio
-import json
-import time
-from typing import Optional, List, Dict, Any
-from fastapi import WebSocket
+from dataclasses import dataclass, field
+from typing import List, Dict, Any
+
+@dataclass
+class WhiteboardElement:
+    id: str
+    element_type: str  # 'formula' | 'note' | 'shape'
+    content: str
+    timestamp: float
 
 class DuetSession:
-    def __init__(self, websocket: WebSocket):
-        self.ws = websocket
-        self.is_active = True
-        self.is_speaking = False
-        self.is_thinking = False
-        
-        # Audio generation tracking for instant interruption
-        self.current_task: Optional[asyncio.Task] = None
-        self.generation_id = 0
-        
-        # Conversational memory
-        self.history: List[Dict[str, Any]] = []
-        
-        # Spatial placement state on canvas
-        self.cursor_x = 100
-        self.cursor_y = 100
-        self.max_y_in_row = 100
+    def __init__(self, system_prompt: str):
+        self.system_prompt = system_prompt
+        self.conversation_history: List[Dict[str, str]] = [
+            {"role": "system", "content": system_prompt}
+        ]
+        self.board_elements: List[WhiteboardElement] = []
+        self.is_speaking: bool = False
 
-    async def interrupt(self):
-        """Immediately abort active generation and mute agent playback."""
-        if self.current_task and not self.current_task.done():
-            self.current_task.cancel()
-        
-        self.generation_id += 1
-        self.is_speaking = False
-        self.is_thinking = False
-        
-        await self.ws.send_json({
-            "type": "interrupt",
-            "generation_id": self.generation_id,
-            "message": "Playback and drawing cancelled due to user interjection."
-        })
+    def add_user_message(self, text: str):
+        self.conversation_history.append({"role": "user", "content": text})
+        # Keep context window clean and fast (last 10 turns)
+        if len(self.conversation_history) > 12:
+            self.conversation_history = [self.conversation_history[0]] + self.conversation_history[-10:]
 
-    def allocate_spatial_slot(self, width: int = 300, height: int = 150) -> tuple[int, int]:
-        """Calculates organic non-overlapping board coordinates for fresh thoughts."""
-        placed_x = self.cursor_x
-        placed_y = self.cursor_y
-        
-        # Shift down for the next entry
-        self.cursor_y += height + 40
-        if self.cursor_y > 1200:
-            # Wrap to next horizontal column if board grows deep
-            self.cursor_y = 100
-            self.cursor_x += 420
+    def add_assistant_message(self, spoken_text: str):
+        self.conversation_history.append({"role": "assistant", "content": spoken_text})
 
-        return placed_x, placed_y
+    def register_board_artifact(self, artifact_type: str, content: str):
+        import time
+        elem = WhiteboardElement(
+            id=f"elem_{int(time.time() * 1000)}",
+            element_type=artifact_type,
+            content=content,
+            timestamp=time.time()
+        )
+        self.board_elements.append(elem)
 
-    def reset_canvas_layout(self):
-        self.cursor_x = 100
-        self.cursor_y = 100
+    def get_contextual_prompt_messages(self) -> List[Dict[str, str]]:
+        """Injects current board state so Meta Llama knows what the student is looking at."""
+        if not self.board_elements:
+            return self.conversation_history
+
+        active_board_summary = "\n".join(
+            [f"- [{e.element_type.upper()}]: {e.content}" for e in self.board_elements[-4:]]
+        )
+        board_context_msg = {
+            "role": "system",
+            "content": f"[CURRENT BOARD STATE]:\n{active_board_summary}\nReference these active elements when the student asks about them."
+        }
+        return [self.conversation_history[0], board_context_msg] + self.conversation_history[1:]

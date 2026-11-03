@@ -1,7 +1,7 @@
 import json
 from openai import AsyncOpenAI
 from agent.config import META_API_KEY, META_API_BASE_URL, MODEL_REASONING
-from agent.prompts import SYSTEM_PROMPT
+from agent.prompt import SYSTEM_PROMPT
 
 client = AsyncOpenAI(
     base_url=META_API_BASE_URL,

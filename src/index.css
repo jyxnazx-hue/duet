@@ -1,19 +1,18 @@
 @import "@tldraw/tldraw/tldraw.css";
 
-/* 1. COMPLETELY REMOVE TLDRAW WATERMARK & DEFAULT NAVIGATION/ZOOM */
+/* Hide tldraw watermark */
 .tlui-watermark,
-.tl-watermark,
 [data-testid="watermark"],
-a[href*="tldraw.dev"],
-.tlui-layout__watermark,
-.tlui-navigation-zone,
-[data-testid="tools.navigation-zone"] {
+a[href*="tldraw.com"] {
   display: none !important;
-  opacity: 0 !important;
   visibility: hidden !important;
+  opacity: 0 !important;
   pointer-events: none !important;
-  width: 0 !important;
-  height: 0 !important;
+}
+
+/* Warm white canvas tone */
+.tl-container {
+  background-color: #FAF8F5 !important;
 }
 
 /* 2. THEME OVERRIDE: CHANGE SELECTION BLUE TO DARK BROWN */

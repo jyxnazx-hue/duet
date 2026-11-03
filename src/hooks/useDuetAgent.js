@@ -1,143 +1,130 @@
-// src/hooks/useDuetAgent.js
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useAudioStreamer } from './useAudioStreamer';
-import { useAudioQueue } from './useAudioQueue';
 
-export function useDuetAgent({ onCanvasAction, onInterject, onSubtitle } = {}) {
-  const [isConnected, setIsConnected] = useState(false);
-  const [agentState, setAgentState] = useState('IDLE'); // IDLE, LISTENING, THINKING, SPEAKING
-  const socketRef = useRef(null);
+export function useDuetLive(editor, wsUrl = 'ws://localhost:8000/ws/session') {
+  const [status, setStatus] = useState('OFFLINE'); // 'ONLINE' | 'OFFLINE'
+  const [agentState, setAgentState] = useState('LISTENING'); // 'LISTENING' | 'THINKING' | 'SPEAKING'
+  const [activeSpeech, setActiveSpeech] = useState('');
+  
+  const wsRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const audioQueueRef = useRef([]);
+  const isPlayingRef = useRef(false);
 
-  const { enqueueAudioChunk, interrupt: stopLocalAudio } = useAudioQueue();
-
-  // Helper to instantly kill any browser speech synthesis
-  const cancelBrowserSpeech = useCallback(() => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-  }, []);
-
-  // Instant client-side ducking when user voice energy spikes
-  const handleLocalVAD = useCallback((rms) => {
-    if (rms > 0.04 && agentState === 'SPEAKING') {
-      cancelBrowserSpeech();
-      stopLocalAudio();
-      setAgentState('LISTENING');
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
-        socketRef.current.send(JSON.stringify({ type: 'barge_in' }));
-      }
-    }
-  }, [agentState, stopLocalAudio, cancelBrowserSpeech]);
-
-  // Stream raw PCM chunks directly to the backend
-  const handlePcmChunk = useCallback((pcmArrayBuffer) => {
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(pcmArrayBuffer);
-    }
-  }, []);
-
-  const { isRecording, startStreaming, stopStreaming } = useAudioStreamer({
-    onPcmChunk: handlePcmChunk,
-    onLocalVAD: handleLocalVAD,
-  });
-
-  // Dispatch text messages over WebSocket
-  const sendUserText = useCallback((text) => {
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: 'user_text', text }));
-    } else {
-      console.warn('Socket not open, cannot send text');
-    }
-  }, []);
-
-  // Manual interrupt (barge-in button)
-  const manualInterrupt = useCallback(() => {
-    cancelBrowserSpeech();
-    stopLocalAudio();
-    setAgentState('LISTENING');
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: 'barge_in' }));
-    }
-  }, [stopLocalAudio, cancelBrowserSpeech]);
-
+  // Initialize Web Audio Context
   useEffect(() => {
-    let isMounted = true;
-    const ws = new WebSocket('wss://operative-implant-handset.ngrok-free.dev/ws/live');
-    ws.binaryType = 'arraybuffer';
-    socketRef.current = ws;
-
-    ws.onopen = () => {
-      if (!isMounted) return;
-      console.log('Duet Agent WebSocket connected');
-      setIsConnected(true);
+    audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+    return () => {
+      if (audioCtxRef.current) audioCtxRef.current.close();
     };
+  }, []);
 
-    ws.onerror = (err) => {
-      console.error('Duet Agent WS error:', err);
-    };
+  const playNextAudioChunk = useCallback(async () => {
+    if (audioQueueRef.current.length === 0 || isPlayingRef.current) return;
+    isPlayingRef.current = true;
+
+    const audioData = audioQueueRef.current.shift();
+    try {
+      if (audioCtxRef.current.state === 'suspended') {
+        await audioCtxRef.current.resume();
+      }
+      const audioBuffer = await audioCtxRef.current.decodeAudioData(audioData.slice(0));
+      const source = audioCtxRef.current.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioCtxRef.current.destination);
+      source.onended = () => {
+        isPlayingRef.current = false;
+        playNextAudioChunk();
+      };
+      source.start();
+    } catch (err) {
+      isPlayingRef.current = false;
+      playNextAudioChunk();
+    }
+  }, []);
+
+  const flushAudio = useCallback(() => {
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+  }, []);
+
+  // Connect WebSocket
+  useEffect(() => {
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => setStatus('ONLINE');
+    ws.onclose = () => setStatus('OFFLINE');
 
     ws.onmessage = async (event) => {
-      if (!isMounted) return;
-
-      // Case 1: Binary audio data from backend TTS
-      if (event.data instanceof ArrayBuffer) {
-        await enqueueAudioChunk(event.data);
+      // Binary Audio Chunk
+      if (event.data instanceof Blob) {
+        const arrayBuf = await event.data.arrayBuffer();
+        audioQueueRef.current.push(arrayBuf);
+        playNextAudioChunk();
         return;
       }
 
-      // Case 2: JSON control frames
+      // JSON Control Message
       try {
         const msg = JSON.parse(event.data);
 
-        switch (msg.type) {
-          case 'state':
-            setAgentState(msg.state);
-            break;
+        if (msg.type === 'state') {
+          setAgentState(msg.state);
+        } else if (msg.type === 'spoken_transcript') {
+          setActiveSpeech(msg.text);
+        } else if (msg.type === 'interrupt_ack') {
+          flushAudio();
+        } else if (msg.type === 'audio_fallback') {
+          // Native fallback when no TTS API key is active
+          if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(msg.text);
+            utterance.rate = 0.95;
+            window.speechSynthesis.speak(utterance);
+          }
+        } else if (msg.type === 'canvas_tool' && editor) {
+          handleCanvasTool(editor, msg.action, msg.payload);
+        }
+      } catch (e) {
+        console.error("Failed to parse agent message:", e);
+      }
+    };
 
-          case 'ai_interject':
-            cancelBrowserSpeech();
-            stopLocalAudio();
-            if (onInterject) onInterject(msg.text);
-            if (onSubtitle) onSubtitle(msg.text);
-            break;
+    return () => ws.close();
+  }, [wsUrl, editor, playNextAudioChunk, flushAudio]);
 
-          case 'speak_start':
-            setAgentState('SPEAKING');
-            if (onSubtitle) onSubtitle(msg.text);
+  const sendMessage = useCallback((text) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    flushAudio();
+    wsRef.current.send(JSON.stringify({ type: 'user_message', text }));
+  }, [flushAudio]);
 
-            // Real-time audio playback through speakers
-            if (typeof window !== 'undefined' && 'speechSynthesis' in window && msg.text) {
-              window.speechSynthesis.cancel();
-              const cleanSpeech = msg.text.replace(/\[\[ACTION:.*?\]\]/g, '').trim();
-              if (cleanSpeech) {
-                const utterance = new SpeechSynthesisUtterance(cleanSpeech);
-                utterance.rate = 1.05;
-                utterance.pitch = 1.0;
-                // window.speechSynthesis.speak(utterance);
-              }
-            }
-            break;
+  const interruptAgent = useCallback(() => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    flushAudio();
+    wsRef.current.send(JSON.stringify({ type: 'barge_in' }));
+  }, [flushAudio]);
 
-          case 'interrupt':
-            cancelBrowserSpeech();
-            stopLocalAudio();
-            setAgentState('LISTENING');
-            break;
+  return { status, agentState, activeSpeech, sendMessage, interruptAgent };
+}
 
-          case 'canvas_action':
-            // Inside ws.onmessage in useDuetAgent.js:
-if (payload.type === 'canvas_action' && editor) {
-  const { action } = payload;
-  if (action.type === 'draw_formula' && action.formula) {
+// Spatial Whiteboard Tool Handler
+function handleCanvasTool(editor, action, payload) {
+  const camera = editor.getCamera();
+  const centerX = -camera.x + window.innerWidth / (2 * camera.z);
+  const centerY = -camera.y + window.innerHeight / (2 * camera.z);
+
+  if (action === 'draw_formula' && payload.formula) {
     editor.createShape({
       type: 'geo',
-      x: 320,
-      y: 220,
+      x: centerX - 200,
+      y: centerY - 60,
       props: {
         geo: 'rectangle',
-        w: 420,
-        h: 120,
-        color: 'light-blue',
+        w: 400,
+        h: 110,
+        color: 'yellow',
         fill: 'semi',
         dash: 'draw'
       }
@@ -145,47 +132,24 @@ if (payload.type === 'canvas_action' && editor) {
 
     editor.createShape({
       type: 'text',
-      x: 340,
-      y: 255,
+      x: centerX - 180,
+      y: centerY - 35,
       props: {
-        text: action.formula,
+        text: payload.formula,
         size: 'l',
-        color: 'blue'
+        color: 'black'
+      }
+    });
+  } else if (action === 'create_note' && payload.text) {
+    editor.createShape({
+      type: 'note',
+      x: centerX + 230,
+      y: centerY - 60,
+      props: {
+        text: payload.text,
+        color: 'grey',
+        size: 'm'
       }
     });
   }
-}
-
-          default:
-            break;
-        }
-      } catch (err) {
-        console.error('Failed to parse WS message:', err);
-      }
-    };
-
-    ws.onclose = () => {
-      if (!isMounted) return;
-      console.log('Duet Agent WebSocket disconnected');
-      setIsConnected(false);
-    };
-
-    return () => {
-      isMounted = false;
-      cancelBrowserSpeech();
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
-    };
-  }, [enqueueAudioChunk, stopLocalAudio, cancelBrowserSpeech, onCanvasAction, onInterject, onSubtitle]);
-
-  return {
-    isConnected,
-    isRecording,
-    agentState,
-    startLiveSession: startStreaming,
-    stopLiveSession: stopStreaming,
-    sendUserText,
-    manualInterrupt,
-  };
 }
