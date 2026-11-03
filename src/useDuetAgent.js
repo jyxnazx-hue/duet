@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
 // REPLACE THIS with your active ngrok URL from Colab:
-const WS_ENDPOINT = 'wss://operative-implant-handset.ngrok-free.dev/ws/live';
+const WS_ENDPOINT = 'ws://localhost:8000/ws/live';
 
 export function useDuetAgent(editor) {
   const [isConnected, setIsConnected] = useState(false);
