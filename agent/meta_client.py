@@ -16,10 +16,8 @@ MODEL_API_KEY = (
 META_API_BASE = os.getenv("META_API_BASE", "https://api.meta.ai/v1").rstrip("/")
 MODEL_ID = os.getenv("META_MODEL_ID", "muse-spark-1.3")
 
-# 1. Meta Muse Spark Conversational Reasoning
 async def stream_meta_reasoning(messages: list, reasoning_effort: str = "low") -> AsyncGenerator[str, None]:
     if not MODEL_API_KEY:
-        print("[meta_client] Error: No MODEL_API_KEY found.")
         yield "MODEL_API_KEY is missing."
         return
 
@@ -28,6 +26,8 @@ async def stream_meta_reasoning(messages: list, reasoning_effort: str = "low") -
         "Authorization": f"Bearer {MODEL_API_KEY}",
         "Content-Type": "application/json"
     }
+    
+    # Remove response_format, Meta API prefers prompt-based JSON enforcement
     payload = {
         "model": MODEL_ID,
         "messages": messages,
@@ -35,6 +35,9 @@ async def stream_meta_reasoning(messages: list, reasoning_effort: str = "low") -
         "max_tokens": 600,
         "stream": True
     }
+
+    # DEBUG: Verify what we are sending
+    print(f"[meta_client] Sending {len(messages)} messages. Roles: {[m.get('role') for m in messages]}")
 
     try:
         async with httpx.AsyncClient(timeout=25.0) as client:
@@ -62,9 +65,9 @@ async def stream_meta_reasoning(messages: list, reasoning_effort: str = "low") -
                         continue
     except Exception as exc:
         print(f"[meta_client] Stream error: {exc}")
+        yield "Stream connection failed."
 
-
-# 2. Meta Audio Transcription (muse-audio-transcribe)
+#  Meta Audio Transcription (muse-audio-transcribe)
 async def transcribe_meta_audio(audio_bytes: bytes, filename: str = "audio.wav") -> str:
     if not MODEL_API_KEY:
         return ""
@@ -85,7 +88,7 @@ async def transcribe_meta_audio(audio_bytes: bytes, filename: str = "audio.wav")
     return ""
 
 
-# 3. Meta Vision (Reading Hand-Drawn Whiteboard Sketches)
+# Meta Vision (Reading Hand-Drawn Whiteboard Sketches)
 async def inspect_whiteboard_canvas(image_base64: str, question: str) -> str:
     if not MODEL_API_KEY:
         return "Meta vision key is missing."
@@ -122,7 +125,7 @@ async def inspect_whiteboard_canvas(image_base64: str, question: str) -> str:
     return "I couldn't parse that sketch clearly."
 
 
-# 4. Meta Image Generation (Realistic Biology Micrographs)
+# Meta Image Generation (Realistic Images)
 async def generate_realistic_diagram(prompt: str) -> Optional[str]:
     if not MODEL_API_KEY:
         return None
