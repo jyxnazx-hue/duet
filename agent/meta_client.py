@@ -16,134 +16,100 @@ MODEL_API_KEY = (
 META_API_BASE = os.getenv("META_API_BASE", "https://api.meta.ai/v1").rstrip("/")
 MODEL_ID = os.getenv("META_MODEL_ID", "muse-spark-1.3")
 
-async def stream_meta_reasoning(messages: list, reasoning_effort: str = "low") -> AsyncGenerator[str, None]:
+
+async def stream_meta_reasoning(messages: list) -> AsyncGenerator[str, None]:
+    """Streams live tokens from Meta Muse Spark using max_completion_tokens."""
     if not MODEL_API_KEY:
-        yield "MODEL_API_KEY is missing."
+        print("[meta_client] ERROR: MODEL_API_KEY is missing.")
+        yield "MODEL_API_KEY is missing from environment."
         return
 
     url = f"{META_API_BASE}/chat/completions"
     headers = {
         "Authorization": f"Bearer {MODEL_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
     
-    # Remove response_format, Meta API prefers prompt-based JSON enforcement
+    # Use max_completion_tokens ONLY (do not include max_tokens)
     payload = {
         "model": MODEL_ID,
         "messages": messages,
-        "reasoning_effort": reasoning_effort,
-        "max_tokens": 600,
-        "stream": True
+        "max_completion_tokens": 2048,
+        "stream": True,
     }
 
-    # DEBUG: Verify what we are sending
-    print(f"[meta_client] Sending {len(messages)} messages. Roles: {[m.get('role') for m in messages]}")
-
     try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
+        async with httpx.AsyncClient(timeout=35.0) as client:
             async with client.stream("POST", url, headers=headers, json=payload) as response:
-                if response.status_code != 200:
-                    err = await response.aread()
-                    print(f"[meta_client] Reasoning error {response.status_code}: {err.decode()}")
-                    yield "Meta endpoint error."
-                    return
+                if response.status_code == 200:
+                    token_count = 0
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line.removeprefix("data: ").strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            choices = chunk.get("choices", [])
+                            if choices:
+                                delta = choices[0].get("delta", {})
+                                token = delta.get("content") or ""
+                                if token:
+                                    token_count += 1
+                                    yield token
+                        except json.JSONDecodeError:
+                            continue
+                    
+                    if token_count > 0:
+                        return
+                    print("[meta_client] Streaming yielded 0 visible tokens. Trying non-streaming call...")
+                else:
+                    err_bytes = await response.aread()
+                    print(f"[meta_client] Streaming HTTP {response.status_code}: {err_bytes.decode('utf-8', errors='ignore')}")
 
-                async for line in response.aiter_lines():
-                    if not line or not line.startswith("data: "):
-                        continue
-                    data_str = line.removeprefix("data: ").strip()
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data_str)
-                        choices = chunk.get("choices", [])
-                        if choices:
-                            token = choices[0].get("delta", {}).get("content", "")
-                            if token:
-                                yield token
-                    except json.JSONDecodeError:
-                        continue
     except Exception as exc:
-        print(f"[meta_client] Stream error: {exc}")
-        yield "Stream connection failed."
+        print(f"[meta_client] Streaming error: {exc}. Trying fallback...")
 
-#  Meta Audio Transcription (muse-audio-transcribe)
-async def transcribe_meta_audio(audio_bytes: bytes, filename: str = "audio.wav") -> str:
-    if not MODEL_API_KEY:
-        return ""
-
-    url = f"{META_API_BASE}/audio/transcriptions"
-    headers = {"Authorization": f"Bearer {MODEL_API_KEY}"}
-    files = {"file": (filename, audio_bytes, "audio/wav")}
-    data = {"model": "muse-audio-transcribe"}
-
+    # Non-streaming fallback
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(url, headers=headers, files=files, data=data)
-            if resp.status_code == 200:
-                return resp.json().get("text", "").strip()
-            print(f"[meta_client] Transcribe error {resp.status_code}: {resp.text}")
-    except Exception as e:
-        print(f"[meta_client] Transcribe exception: {e}")
-    return ""
-
-
-# Meta Vision (Reading Hand-Drawn Whiteboard Sketches)
-async def inspect_whiteboard_canvas(image_base64: str, question: str) -> str:
-    if not MODEL_API_KEY:
-        return "Meta vision key is missing."
-
-    url = f"{META_API_BASE}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {MODEL_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    formatted_b64 = image_base64 if image_base64.startswith("data:") else f"data:image/png;base64,{image_base64}"
-
-    payload = {
-        "model": MODEL_ID,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": question},
-                    {"type": "image_url", "image_url": {"url": formatted_b64}}
-                ]
-            }
-        ],
-        "max_tokens": 250
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        payload["stream"] = False
+        async with httpx.AsyncClient(timeout=35.0) as client:
             resp = await client.post(url, headers=headers, json=payload)
             if resp.status_code == 200:
-                return resp.json()["choices"][0]["message"]["content"]
+                data = resp.json()
+                msg = data.get("choices", [{}])[0].get("message", {})
+                content = msg.get("content") or ""
+                if content:
+                    yield content
+                    return
+            else:
+                print(f"[meta_client] Non-stream HTTP {resp.status_code}: {resp.text}")
     except Exception as e:
-        print(f"[meta_client] Vision exception: {e}")
-    return "I couldn't parse that sketch clearly."
+        print(f"[meta_client] Non-stream exception: {e}")
+
+    yield "I'm having trouble connecting to Muse Spark. Please verify the endpoint."
 
 
-# Meta Image Generation (Realistic Images)
 async def generate_realistic_diagram(prompt: str) -> Optional[str]:
+    """Meta Image Generation for realistic micrographs."""
     if not MODEL_API_KEY:
         return None
 
     url = f"{META_API_BASE}/images/generations"
     headers = {
         "Authorization": f"Bearer {MODEL_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
     payload = {
-        "prompt": f"Scientific electron microscopy photo, high resolution, biology: {prompt}",
+        "prompt": f"Microscopic view of {prompt}, high resolution scientific reference",
         "n": 1,
         "size": "512x512",
-        "response_format": "url"
+        "response_format": "url",
     }
 
     try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, headers=headers, json=payload)
             if resp.status_code == 200:
                 data = resp.json()

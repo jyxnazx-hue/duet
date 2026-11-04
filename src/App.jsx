@@ -89,7 +89,7 @@ export default function App() {
   const [currentColor, setCurrentColor] = useState(COLOR_PALETTE[0]);
   const [isColorMenuOpen, setIsColorMenuOpen] = useState(false);
 
-  const [subject, setSubject] = useState('Exploration & Synthesis');
+  const [subject, setSubject] = useState('Harmonic Motion: Pendulums');
   const [pageNumber, setPageNumber] = useState('Page 1');
 
   const [zoomLevel, setZoomLevel] = useState(100);
@@ -97,9 +97,15 @@ export default function App() {
   const [activeSidePanel, setActiveSidePanel] = useState(null);
   const [sessionResources, setSessionResources] = useState([]);
 
-  // Complete Vector Objects State Tree (Selectable & Movable)
+  // Simulation Container State (Declared first to avoid TDZ errors)
+  const [activeSimulation, setActiveSimulation] = useState(null);
+
+  // Unified Vector Objects State Tree
   const [canvasObjects, setCanvasObjects] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
+
+  // Subtle AI Pen-Point Cursor State
+  const [aiCursor, setAiCursor] = useState({ x: 400, y: 300, visible: false, action: '' });
 
   // Undo/Redo stacks
   const historyRef = useRef([]);
@@ -110,7 +116,6 @@ export default function App() {
   const isPanningRef = useRef(false);
   const panStartRef = useRef({ x: 0, y: 0 });
 
-  // Dragging Objects
   const dragRef = useRef({
     isDragging: false,
     id: null,
@@ -118,78 +123,113 @@ export default function App() {
     initialObj: null,
   });
 
-  // Current In-progress Drawing object
   const currentDrawRef = useRef(null);
 
-  // 1. Define the action handler so Duet can draw on the canvas
-  const handleAgentCanvasAction = useCallback((action, payload) => {
-    if (action === 'draw_cell_part') {
-      const now = Date.now();
-      const newItems = [];
+  // Progressive Vector Animation Routine
+  const streamDrawItems = useCallback((items) => {
+    if (!items || items.length === 0) return;
+    let idx = 0;
+    setAiCursor({ x: items[0].sx || items[0].x || 420, y: items[0].sy || items[0].y || 220, visible: true, action: 'Drawing...' });
 
-      // Draw the organelle shape
-      if (payload.part === 'membrane') {
-        newItems.push({
-          id: now,
-          type: 'shape',
-          shape: 'circle',
-          sx: payload.cx || 450,
-          sy: payload.cy || 320,
-          w: payload.r || 160,
-          h: payload.r || 160,
-          color: '#262422',
-          width: 2.5,
-        });
-      } else if (payload.part === 'nucleus') {
-        newItems.push({
-          id: now,
-          type: 'shape',
-          shape: 'circle',
-          sx: payload.cx || 430,
-          sy: payload.cy || 300,
-          w: payload.r || 50,
-          h: payload.r || 50,
-          color: '#1D4ED8',
-          width: 2.5,
-        });
-      } else if (payload.part === 'mitochondria') {
-        newItems.push({
-          id: now,
-          type: 'shape',
-          shape: 'rect',
-          sx: (payload.cx || 530) - (payload.w || 65) / 2,
-          sy: (payload.cy || 340) - (payload.h || 35) / 2,
-          w: payload.w || 65,
-          h: payload.h || 35,
-          color: '#B45309',
-          width: 2.5,
-        });
+    const timer = setInterval(() => {
+      if (idx >= items.length) {
+        clearInterval(timer);
+        setTimeout(() => setAiCursor((c) => ({ ...c, visible: false })), 800);
+        return;
       }
-
-      // Add the descriptive butter-cream sticky note right beside it
-      newItems.push({
-        id: now + 1,
-        type: 'dom_note',
-        x: (payload.cx || 450) + (payload.r || 60) + 30,
-        y: (payload.cy || 320) - 60,
-        w: 190,
-        h: 120,
-        color: '#FFFBEA',
-        textColor: '#78350F',
-        text: `${payload.title || 'Cell Organelle'}\n\n${payload.desc || ''}`,
+      const item = items[idx];
+      setAiCursor({
+        x: item.ex || item.x || item.sx || 420,
+        y: item.ey || item.y || item.sy || 220,
+        visible: true,
+        action: item.label || 'Sketching...',
       });
-
-      setCanvasObjects((prev) => [...prev, ...newItems]);
-    }
+      setCanvasObjects((prev) => [...prev, item]);
+      idx++;
+    }, 160);
   }, []);
 
-  // 2. Pass handleAgentCanvasAction as the second argument to useDuetLive
+  // Dynamic Whiteboard Action Handler
+  const handleAgentCanvasAction = useCallback((action) => {
+    if (!action) return;
+    const now = Date.now();
+    const cx = Math.max(360, Math.floor(window.innerWidth / 2) - 180);
+    const cy = 180;
+
+    const actType = (action.type || action.action || '').toLowerCase();
+
+    // 1. Draw Pendulum Diagram
+    if (actType.includes('draw') || actType.includes('diagram') || actType.includes('sketch') || actType.includes('pendulum')) {
+      const len = 180;
+      const angle = 0.44;
+      const bobX = cx + Math.sin(angle) * len;
+      const bobY = cy + Math.cos(angle) * len;
+
+      const items = [
+        { id: now + 1, type: 'line', sx: cx - 75, sy: cy, ex: cx + 75, ey: cy, color: '#262422', width: 3 },
+        { id: now + 2, type: 'line', sx: cx - 50, sy: cy, ex: cx - 40, ey: cy - 10, color: '#78716C', width: 1.5 },
+        { id: now + 3, type: 'line', sx: cx - 20, sy: cy, ex: cx - 10, ey: cy - 10, color: '#78716C', width: 1.5 },
+        { id: now + 4, type: 'line', sx: cx + 10, sy: cy, ex: cx + 20, ey: cy - 10, color: '#78716C', width: 1.5 },
+        { id: now + 5, type: 'line', sx: cx + 40, sy: cy, ex: cx + 50, ey: cy - 10, color: '#78716C', width: 1.5 },
+        { id: now + 6, type: 'dashed_line', sx: cx, sy: cy, ex: cx, ey: cy + len + 30, color: '#A8A29E', width: 1.5 },
+        { id: now + 7, type: 'line', sx: cx, sy: cy, ex: bobX, ey: bobY, color: '#2563EB', width: 2.5 },
+        { id: now + 8, type: 'text_box', x: (cx + bobX) / 2 - 25, y: (cy + bobY) / 2, text: 'L', fontSize: 16, bold: true, color: '#2563EB' },
+        { id: now + 9, type: 'shape', shape: 'circle', sx: bobX - 18, sy: bobY - 18, w: 36, h: 36, color: '#DC2626', fill: '#FCA5A5', width: 2.5 },
+        { id: now + 10, type: 'text_box', x: bobX - 6, y: bobY + 5, text: 'm', fontSize: 13, bold: true, color: '#991B1B' },
+        { id: now + 11, type: 'arrow', sx: bobX, sy: bobY, ex: bobX - 45, ey: bobY - 10, color: '#DC2626', label: 'F = -mg sin θ' },
+        { id: now + 12, type: 'text_box', x: cx + 12, y: cy + 50, text: 'θ (angle)', fontSize: 13, bold: true, color: '#059669' },
+      ];
+      streamDrawItems(items);
+    }
+    // 2. Typeset Formula
+    else if (actType.includes('formula') || actType.includes('equation')) {
+      const fx = cx + 180;
+      const fy = cy - 20;
+      const formulaItems = [
+        { id: now + 20, type: 'text_box', x: fx, y: fy, text: 'Period of a Simple Pendulum', fontSize: 15, bold: true, color: '#78716C' },
+        { id: now + 21, type: 'text_box', x: fx, y: fy + 38, text: 'T = 2π √(L / g)', fontSize: 24, bold: true, color: '#1D4ED8' },
+        { id: now + 22, type: 'text_box', x: fx, y: fy + 72, text: '• L: Length of string (meters)', fontSize: 13, bold: false, color: '#44403C' },
+        { id: now + 23, type: 'text_box', x: fx, y: fy + 94, text: '• g: Gravitational acceleration (9.8 m/s²)', fontSize: 13, bold: false, color: '#44403C' },
+        { id: now + 24, type: 'text_box', x: fx, y: fy + 124, text: 'Key Insight: Mass (m) cancels out completely!', fontSize: 13, bold: true, color: '#047857' },
+      ];
+      streamDrawItems(formulaItems);
+    }
+    // 3. Problem Solving / Calculation Steps
+    else if (actType.includes('solve') || actType.includes('calc') || actType.includes('problem')) {
+      const sx = cx + 180;
+      const sy = cy + 130;
+      const steps = [
+        'Problem: Pendulum Period on Earth',
+        'Given: L = 1.0 m,  g = 9.8 m/s²',
+        'Formula: T = 2π √(1.0 / 9.8)',
+        'T = 2π · 0.3194',
+        'Final Period: T ≈ 2.007 seconds',
+      ];
+      const stepItems = steps.map((st, i) => ({
+        id: now + 30 + i,
+        type: 'text_box',
+        x: sx,
+        y: sy + i * 26,
+        text: st,
+        fontSize: i === steps.length - 1 ? 16 : 13,
+        bold: i === 0 || i === steps.length - 1,
+        color: i === steps.length - 1 ? '#15803D' : i === 0 ? '#1D4ED8' : '#44403C',
+      }));
+      streamDrawItems(stepItems);
+    }
+    // 4. Launch Simulation Sandbox
+    else if (actType.includes('sim')) {
+      setActiveSimulation({
+        type: 'pendulum_oscillator',
+        title: 'Interactive Harmonic Oscillator Sandbox',
+      });
+    }
+  }, [streamDrawItems]);
+
   const {
     agentState,
     activeSpeech,
     conversation,
-    activeSimulation,
-    setActiveSimulation,
     isMicActive,
     interruptAgent,
     toggleLiveVoice,
@@ -231,7 +271,6 @@ export default function App() {
     setSelectedId(null);
   }, [saveHistory]);
 
-  // Delete key listener
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.key === 'Backspace' || e.key === 'Delete') && selectedId) {
@@ -247,10 +286,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedId, saveHistory]);
 
-
-  // -------------------------------------------------------------
-  // Full Vector Re-render Loop
-  // -------------------------------------------------------------
+  // Canvas Render Loop
   const renderAll = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -259,12 +295,10 @@ export default function App() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.save();
 
-    // Apply viewport Pan and Zoom
     ctx.translate(pan.x, pan.y);
     const scale = zoomLevel / 100;
     ctx.scale(scale, scale);
 
-    // Draw all completed vector objects
     canvasObjects.forEach((obj) => {
       const isSelected = obj.id === selectedId;
 
@@ -275,7 +309,23 @@ export default function App() {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      if (obj.type === 'pen' && obj.points?.length > 1) {
+      if (obj.type === 'line') {
+        ctx.beginPath();
+        ctx.moveTo(obj.sx, obj.sy);
+        ctx.lineTo(obj.ex, obj.ey);
+        ctx.stroke();
+      } else if (obj.type === 'dashed_line') {
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(obj.sx, obj.sy);
+        ctx.lineTo(obj.ex, obj.ey);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (obj.type === 'text_box') {
+        ctx.font = `${obj.bold ? '700' : '500'} ${obj.fontSize || 14}px Inter, sans-serif`;
+        ctx.fillStyle = obj.color || '#262422';
+        ctx.fillText(obj.text, obj.x, obj.y);
+      } else if (obj.type === 'pen' && obj.points?.length > 1) {
         ctx.beginPath();
         ctx.moveTo(obj.points[0].x, obj.points[0].y);
         for (let i = 1; i < obj.points.length; i++) {
@@ -283,7 +333,6 @@ export default function App() {
         }
         ctx.stroke();
 
-        // Selection Bounding Box for Freehand Stroke
         if (isSelected && obj.bounds) {
           ctx.strokeStyle = '#2563EB';
           ctx.lineWidth = 1;
@@ -304,6 +353,12 @@ export default function App() {
         ctx.lineTo(obj.ex - 12 * Math.cos(angle + Math.PI / 6), obj.ey - 12 * Math.sin(angle + Math.PI / 6));
         ctx.stroke();
 
+        if (obj.label) {
+          ctx.font = '600 11px Inter, sans-serif';
+          ctx.fillStyle = '#DC2626';
+          ctx.fillText(obj.label, (obj.sx + obj.ex) / 2 + 10, (obj.sy + obj.ey) / 2);
+        }
+
         if (isSelected) {
           ctx.strokeStyle = '#2563EB';
           ctx.lineWidth = 1;
@@ -313,13 +368,13 @@ export default function App() {
           ctx.strokeRect(minX - 4, minY - 4, Math.abs(obj.ex - obj.sx) + 8, Math.abs(obj.ey - obj.sy) + 8);
         }
       } else if (obj.type === 'shape') {
-        const { sx, sy, w, h, shape } = obj;
+        const { sx, sy, w, h, shape, fill } = obj;
         ctx.beginPath();
         if (shape === 'rect') {
           ctx.strokeRect(sx, sy, w, h);
         } else if (shape === 'circle') {
-          const r = Math.sqrt(w * w + h * h);
-          ctx.arc(sx, sy, r, 0, 2 * Math.PI);
+          ctx.arc(sx + w / 2, sy + h / 2, w / 2, 0, 2 * Math.PI);
+          if (fill) ctx.fill();
           ctx.stroke();
         } else if (shape === 'triangle') {
           ctx.moveTo(sx + w / 2, sy);
@@ -334,21 +389,6 @@ export default function App() {
           ctx.lineTo(sx, sy + h / 2);
           ctx.closePath();
           ctx.stroke();
-        } else if (shape === 'star') {
-          const cx = sx + w / 2;
-          const cy = sy + h / 2;
-          const outer = Math.abs(w / 2);
-          const inner = outer / 2.2;
-          for (let i = 0; i < 10; i++) {
-            const a = (i * Math.PI) / 5 - Math.PI / 2;
-            const r = i % 2 === 0 ? outer : inner;
-            const px = cx + r * Math.cos(a);
-            const py = cy + r * Math.sin(a);
-            if (i === 0) ctx.moveTo(px, py);
-            else ctx.lineTo(px, py);
-          }
-          ctx.closePath();
-          ctx.stroke();
         }
 
         if (isSelected) {
@@ -361,7 +401,6 @@ export default function App() {
       ctx.restore();
     });
 
-    // In-progress live stroke/shape rendering
     if (currentDrawRef.current) {
       const cur = currentDrawRef.current;
       ctx.save();
@@ -395,7 +434,6 @@ export default function App() {
     renderAll();
   }, [renderAll]);
 
-  // Window resize
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -412,9 +450,6 @@ export default function App() {
     return () => window.removeEventListener('resize', onResize);
   }, [renderAll]);
 
-  // -------------------------------------------------------------
-  // Hit Testing Function (Finds clicked stroke or shape)
-  // -------------------------------------------------------------
   const findObjectAtPosition = (px, py) => {
     for (let i = canvasObjects.length - 1; i >= 0; i--) {
       const obj = canvasObjects[i];
@@ -449,9 +484,6 @@ export default function App() {
     return null;
   };
 
-  // -------------------------------------------------------------
-  // Pointer Event Logic (Drawing, Panning, Selection & Moving)
-  // -------------------------------------------------------------
   const handlePointerDown = (e) => {
     const scale = zoomLevel / 100;
     const canvasX = (e.clientX - pan.x) / scale;
@@ -463,7 +495,6 @@ export default function App() {
       return;
     }
 
-    // SELECT & MOVE MODE
     if (activeTool === 'select') {
       const hit = findObjectAtPosition(canvasX, canvasY);
       if (hit) {
@@ -480,7 +511,6 @@ export default function App() {
       return;
     }
 
-    // SPAWN STICKY NOTE (Exact Soft Butter-Cream)
     if (activeTool === 'note') {
       saveHistory();
       const newNote = {
@@ -490,7 +520,7 @@ export default function App() {
         y: canvasY - 80,
         w: 200,
         h: 170,
-        color: '#FFFBEA', // Soft butter cream
+        color: '#FFFBEA',
         textColor: '#78350F',
         text: '',
       };
@@ -500,7 +530,6 @@ export default function App() {
       return;
     }
 
-    // SPAWN TEXT
     if (activeTool === 'text') {
       saveHistory();
       const newText = {
@@ -519,7 +548,6 @@ export default function App() {
       return;
     }
 
-    // SPAWN FRAME
     if (activeTool === 'frame') {
       saveHistory();
       const newFrame = {
@@ -537,7 +565,6 @@ export default function App() {
       return;
     }
 
-    // DRAWING PEN / SHAPE / ARROW
     isPointerDownRef.current = true;
     if (activeTool === 'pen') {
       currentDrawRef.current = {
@@ -582,7 +609,6 @@ export default function App() {
     const canvasX = (e.clientX - pan.x) / scale;
     const canvasY = (e.clientY - pan.y) / scale;
 
-    // DRAG AND MOVE SELECTED VECTOR OBJECT
     if (dragRef.current.isDragging && dragRef.current.id) {
       const dx = canvasX - dragRef.current.startPointer.x;
       const dy = canvasY - dragRef.current.startPointer.y;
@@ -615,7 +641,6 @@ export default function App() {
       return;
     }
 
-    // DRAWING MOTION
     if (!isPointerDownRef.current || !currentDrawRef.current) return;
     const cur = currentDrawRef.current;
 
@@ -664,7 +689,6 @@ export default function App() {
     renderAll();
   };
 
-  // Dragging DOM elements (Notes / Text / Frames)
   const handleDomElementMouseDown = (e, el) => {
     e.stopPropagation();
     setSelectedId(el.id);
@@ -719,7 +743,7 @@ export default function App() {
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
     >
-      {/* 1. Vector Drawing Canvas */}
+      {/* 1. Underlying Vector Drawing Canvas */}
       <canvas
         ref={canvasRef}
         style={{
@@ -737,7 +761,49 @@ export default function App() {
         }}
       />
 
-      {/* 2. Scalable Workspace for Sticky Notes, Text & Frames */}
+      {/* 2. Live Pen-Point AI Companion Cursor */}
+      {aiCursor.visible && (
+        <div
+          style={{
+            position: 'absolute',
+            left: aiCursor.x + pan.x,
+            top: aiCursor.y + pan.y,
+            transform: 'translate(-50%, -50%)',
+            pointerEvents: 'none',
+            zIndex: 60,
+            transition: 'all 0.15s cubic-bezier(0.2, 0.8, 0.2, 1)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}
+        >
+          <div
+            style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              backgroundColor: '#1E40AF',
+              boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.28)',
+            }}
+          />
+          <span
+            style={{
+              fontSize: '10px',
+              fontWeight: 600,
+              color: '#3B82F6',
+              backgroundColor: '#FFFFFF',
+              border: '1px solid #DBEAFE',
+              padding: '1px 6px',
+              borderRadius: '4px',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.06)',
+            }}
+          >
+            Duet • {aiCursor.action}
+          </span>
+        </div>
+      )}
+
+      {/* 3. Scalable Workspace for Sticky Notes, Text & Frames */}
       <div
         style={{
           position: 'absolute',
@@ -752,7 +818,6 @@ export default function App() {
           if (!el.type.startsWith('dom_')) return null;
           const isSelected = selectedId === el.id;
 
-          // Sticky Note: Soft Butter Cream Yellow, borderless
           if (el.type === 'dom_note') {
             return (
               <div
@@ -802,7 +867,6 @@ export default function App() {
             );
           }
 
-          // Editable Text Container
           if (el.type === 'dom_text') {
             return (
               <div
@@ -843,7 +907,6 @@ export default function App() {
             );
           }
 
-          // Frame Section
           if (el.type === 'dom_frame') {
             return (
               <div
@@ -890,8 +953,7 @@ export default function App() {
         })}
       </div>
 
-      {/* 3. Top Header Bar */}
-      {/* Top Left: ❦ Duet */}
+      {/* 4. Top Header Bar */}
       <div
         style={{
           position: 'absolute',
@@ -909,7 +971,6 @@ export default function App() {
         </span>
       </div>
 
-      {/* Top Center: Minimal reactive text status */}
       <div
         style={{
           position: 'absolute',
@@ -944,7 +1005,6 @@ export default function App() {
         )}
       </div>
 
-      {/* Top Right: Editable Subject & Page + Live Voice */}
       <div
         style={{
           position: 'absolute',
@@ -1011,7 +1071,7 @@ export default function App() {
         </button>
       </div>
 
-      {/* 4. Dialogue Box */}
+      {/* 5. Dialogue Card */}
       <div
         style={{
           position: 'absolute',
@@ -1031,9 +1091,10 @@ export default function App() {
           boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
         }}
       >
-        {activeSpeech || "Hey! I'm Duet, your live companion. What are we sketching or exploring today?"}
+        {activeSpeech || "Welcome to Duet! What concept in mechanics or physics should we explore today?"}
       </div>
 
+      {/* 6. Interactive Pendulum Sandbox Container */}
       {activeSimulation && (
         <InteractiveCanvas
           simulation={activeSimulation}
@@ -1041,39 +1102,7 @@ export default function App() {
         />
       )}
 
-      {/* 5. Bottom Controls */}
-      {/* Bottom Left: Zoom */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: '24px',
-          left: '24px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '6px 12px',
-          backgroundColor: '#FFFFFF',
-          border: '1px solid #D1D1D1',
-          borderRadius: '8px',
-          zIndex: 500,
-        }}
-      >
-        <button
-          onClick={() => setZoomLevel((z) => Math.max(50, z - 10))}
-          style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#262422', fontWeight: 600 }}
-        >
-          –
-        </button>
-        <span style={{ fontSize: '11px', fontWeight: 600, color: '#262422' }}>{zoomLevel}%</span>
-        <button
-          onClick={() => setZoomLevel((z) => Math.min(200, z + 10))}
-          style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#262422', fontWeight: 600 }}
-        >
-          +
-        </button>
-      </div>
-
-      {/* Bottom Center: Unified Toolbar */}
+      {/* 7. Bottom Unified Toolbar */}
       <div
         style={{
           position: 'absolute',
@@ -1126,7 +1155,7 @@ export default function App() {
           </button>
         ))}
 
-        {/* Geometry Shapes Dropdown */}
+        {/* Shapes Menu */}
         <div style={{ position: 'relative' }}>
           <button
             onClick={() => {
@@ -1175,7 +1204,6 @@ export default function App() {
                 { id: 'circle', label: 'Circle', glyph: '○' },
                 { id: 'triangle', label: 'Triangle', glyph: '△' },
                 { id: 'diamond', label: 'Diamond', glyph: '◇' },
-                { id: 'star', label: 'Star', glyph: '☆' },
               ].map((s) => (
                 <button
                   key={s.id}
@@ -1277,7 +1305,6 @@ export default function App() {
 
         <div style={{ width: '1px', height: '16px', backgroundColor: '#D1D1D1', margin: '0 4px' }} />
 
-        {/* Undo / Redo / Clear */}
         <button
           onClick={handleUndo}
           title="Undo"
@@ -1301,7 +1328,7 @@ export default function App() {
         </button>
       </div>
 
-      {/* Bottom Right: Resources & Transcript */}
+      {/* 8. Bottom Right Drawer Toggles */}
       <div
         style={{
           position: 'absolute',
@@ -1354,7 +1381,7 @@ export default function App() {
         </button>
       </div>
 
-      {/* 6. Full-Height Side Drawer */}
+      {/* 9. Full-Height Side Drawer */}
       {activeSidePanel && (
         <aside
           style={{

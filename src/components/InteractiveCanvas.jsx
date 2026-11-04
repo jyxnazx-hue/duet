@@ -2,192 +2,174 @@ import React, { useEffect, useRef, useState } from 'react';
 
 export default function InteractiveCanvas({ simulation, onClose }) {
   const canvasRef = useRef(null);
-  const [selectedOrganelle, setSelectedOrganelle] = useState(null);
+  const [centralMass, setCentralMass] = useState(1200);
+  const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    let animationFrameId;
+    let animationId;
 
-    const width = (canvas.width = 680);
-    const height = (canvas.height = 420);
+    const width = (canvas.width = 720);
+    const height = (canvas.height = 460);
     const cx = width / 2;
     const cy = height / 2;
 
-    let time = 0;
+    const bodies = [
+      { x: cx, y: cy - 130, vx: 3.1, vy: 0, r: 9, color: '#38BDF8', trail: [] },
+      { x: cx, y: cy + 185, vx: -2.6, vy: 0, r: 12, color: '#FBBF24', trail: [] },
+      { x: cx + 90, y: cy, vx: 0, vy: 3.7, r: 6, color: '#F43F5E', trail: [] },
+    ];
 
-    // ATP Particles emitted by mitochondria
-    const atpParticles = Array.from({ length: 18 }, () => ({
-      x: cx + 110 + (Math.random() - 0.5) * 40,
-      y: cy + 40 + (Math.random() - 0.5) * 40,
-      vx: (Math.random() - 0.5) * 0.8,
-      vy: (Math.random() - 0.5) * 0.8,
-      life: Math.random() * 80,
-    }));
+    const G = 0.8;
 
-    const renderCell = () => {
-      time += 0.03;
-      ctx.clearRect(0, 0, width, height);
-
-      // Background: Extracellular space
-      ctx.fillStyle = '#1C1917';
+    const render = () => {
+      ctx.fillStyle = '#171614';
       ctx.fillRect(0, 0, width, height);
 
-      // 1. Plasma Membrane (Soft pulsating cell boundary)
-      ctx.beginPath();
-      for (let angle = 0; angle <= Math.PI * 2; angle += 0.05) {
-        const r = 180 + Math.sin(angle * 4 + time) * 6 + Math.cos(angle * 2 - time * 0.5) * 4;
-        const px = cx + r * Math.cos(angle);
-        const py = cy + (r * 0.88) * Math.sin(angle);
-        if (angle === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(217, 119, 6, 0.08)'; // Cytoplasm
-      ctx.fill();
-      ctx.strokeStyle = '#D97706';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-
-      // 2. Endoplasmic Reticulum folds
-      ctx.strokeStyle = 'rgba(168, 85, 247, 0.4)';
-      ctx.lineWidth = 2.5;
-      for (let i = 0; i < 3; i++) {
+      // Orbital reference rings
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+      ctx.lineWidth = 1;
+      [90, 130, 185].forEach((radius) => {
         ctx.beginPath();
-        ctx.ellipse(cx - 30, cy + 10, 80 + i * 16, 50 + i * 12, 0.2, 0.4, Math.PI * 1.4);
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.stroke();
-      }
-
-      // 3. Nucleus (Center control hub)
-      const nucR = 54 + Math.sin(time * 1.5) * 2;
-      ctx.beginPath();
-      ctx.arc(cx - 30, cy + 10, nucR, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(59, 130, 246, 0.22)';
-      ctx.fill();
-      ctx.strokeStyle = '#38BDF8';
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
-
-      // Nucleolus
-      ctx.beginPath();
-      ctx.arc(cx - 32, cy + 8, 20, 0, Math.PI * 2);
-      ctx.fillStyle = '#0284C7';
-      ctx.fill();
-
-      // 4. Mitochondrion (Powerhouse of the Cell)
-      const mitoX = cx + 110;
-      const mitoY = cy + 40;
-      ctx.save();
-      ctx.translate(mitoX, mitoY);
-      ctx.rotate(-0.4);
-
-      // Outer membrane
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 36, 18, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.25)';
-      ctx.fill();
-      ctx.strokeStyle = '#EF4444';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // Cristae inner folds
-      ctx.strokeStyle = '#FCA5A5';
-      ctx.lineWidth = 1.5;
-      for (let x = -20; x <= 20; x += 10) {
-        ctx.beginPath();
-        ctx.moveTo(x, -10);
-        ctx.lineTo(x, 10);
-        ctx.stroke();
-      }
-      ctx.restore();
-
-      // 5. ATP Synthesis Particles
-      atpParticles.forEach((p) => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life += 1;
-        if (p.life > 100) {
-          p.x = mitoX + (Math.random() - 0.5) * 20;
-          p.y = mitoY + (Math.random() - 0.5) * 20;
-          p.life = 0;
-        }
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#FBBF24';
-        ctx.shadowColor = '#FBBF24';
-        ctx.shadowBlur = 8;
-        ctx.fill();
-        ctx.shadowBlur = 0;
       });
 
-      // 6. Golgi Apparatus
-      ctx.strokeStyle = '#10B981';
-      ctx.lineWidth = 2.5;
-      for (let i = 0; i < 4; i++) {
+      // Central Mass (Sun / Primary Body)
+      ctx.beginPath();
+      ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+      ctx.fillStyle = '#FB923C';
+      ctx.shadowColor = '#FB923C';
+      ctx.shadowBlur = 20;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '600 11px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Central Mass M', cx, cy + 36);
+
+      // Update and draw orbital satellites
+      bodies.forEach((b) => {
+        if (!isPaused) {
+          const dx = cx - b.x;
+          const dy = cy - b.y;
+          const distSq = dx * dx + dy * dy;
+          const dist = Math.sqrt(distSq);
+
+          if (dist > 25) {
+            const force = (G * centralMass) / distSq;
+            b.vx += force * (dx / dist);
+            b.vy += force * (dy / dist);
+            b.x += b.vx;
+            b.y += b.vy;
+
+            b.trail.push({ x: b.x, y: b.y });
+            if (b.trail.length > 40) b.trail.shift();
+          }
+        }
+
+        // Particle trail
         ctx.beginPath();
-        ctx.arc(cx + 80, cy - 70 + i * 9, 28, 0.3, Math.PI * 0.9);
+        for (let i = 0; i < b.trail.length; i++) {
+          const pt = b.trail[i];
+          if (i === 0) ctx.moveTo(pt.x, pt.y);
+          else ctx.lineTo(pt.x, pt.y);
+        }
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = 1.5;
         ctx.stroke();
-      }
 
-      // Labels
-      ctx.fillStyle = '#F5F5F4';
-      ctx.font = '11px Inter, sans-serif';
-      ctx.fillText('Nucleus & DNA', cx - 70, cy + 14);
-      ctx.fillText('Mitochondrion (ATP Active)', mitoX - 60, mitoY + 40);
-      ctx.fillText('Golgi Complex', cx + 55, cy - 85);
+        // Body
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fillStyle = b.color;
+        ctx.fill();
 
-      animationFrameId = requestAnimationFrame(renderCell);
+        // Velocity vector line
+        ctx.beginPath();
+        ctx.moveTo(b.x, b.y);
+        ctx.lineTo(b.x + b.vx * 6, b.y + b.vy * 6);
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      });
+
+      animationId = requestAnimationFrame(render);
     };
 
-    renderCell();
-    return () => cancelAnimationFrame(animationFrameId);
-  }, []);
+    render();
+    return () => cancelAnimationFrame(animationId);
+  }, [centralMass, isPaused]);
 
   return (
     <div
       style={{
         position: 'absolute',
-        top: '100px',
+        top: '90px',
         left: '50%',
         transform: 'translateX(-50%)',
-        backgroundColor: '#1C1917',
+        backgroundColor: '#171614',
         borderRadius: '16px',
-        padding: '16px',
-        boxShadow: '0 20px 50px rgba(0,0,0,0.3)',
+        padding: '18px',
+        boxShadow: '0 24px 60px rgba(0,0,0,0.4)',
         border: '1px solid #292524',
         zIndex: 600,
+        width: '756px',
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '12px',
-        }}
-      >
-        <span style={{ fontSize: '13px', fontWeight: 600, color: '#F5F5F4' }}>
-          {simulation?.title || 'Interactive Living Eukaryotic Cell'}
-        </span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '14px', fontWeight: 700, color: '#F5F5F4' }}>
+            {simulation?.title || 'Gravitational Orbital Sandbox'}
+          </span>
+          <span style={{ fontSize: '11px', color: '#A8A29E', background: '#262422', padding: '3px 8px', borderRadius: '4px' }}>
+            F = G(m₁m₂)/r²
+          </span>
+        </div>
         <button
           onClick={onClose}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#A8A29E',
-            fontSize: '15px',
-            cursor: 'pointer',
-          }}
+          style={{ background: 'none', border: 'none', color: '#A8A29E', fontSize: '16px', cursor: 'pointer' }}
         >
           ✕
         </button>
       </div>
 
-      <canvas
-        ref={canvasRef}
-        style={{ borderRadius: '12px', display: 'block' }}
-      />
+      <canvas ref={canvasRef} style={{ borderRadius: '12px', display: 'block', width: '100%' }} />
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <label style={{ fontSize: '12px', color: '#D6D3D1', fontWeight: 500 }}>
+            Central Mass (M): {centralMass}
+          </label>
+          <input
+            type="range"
+            min="400"
+            max="3000"
+            step="50"
+            value={centralMass}
+            onChange={(e) => setCentralMass(Number(e.target.value))}
+            style={{ width: '140px', accentColor: '#FB923C' }}
+          />
+        </div>
+
+        <button
+          onClick={() => setIsPaused((p) => !p)}
+          style={{
+            padding: '5px 14px',
+            backgroundColor: '#262422',
+            color: '#F5F5F4',
+            border: '1px solid #44403C',
+            borderRadius: '6px',
+            fontSize: '12px',
+            cursor: 'pointer',
+          }}
+        >
+          {isPaused ? 'Resume' : 'Pause'}
+        </button>
+      </div>
     </div>
   );
 }

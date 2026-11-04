@@ -37,8 +37,12 @@ export function useDuetLive(wsUrl = 'ws://127.0.0.1:8000/ws/session', onCanvasAc
       URL.revokeObjectURL(url);
       setAgentState('LISTENING');
     };
-    audioRef.current.onerror = () => setAgentState('LISTENING');
-    audioRef.current.play().catch(() => setAgentState('LISTENING'));
+    audioRef.current.onerror = () => {
+      setAgentState('LISTENING');
+    };
+    audioRef.current.play().catch(() => {
+      setAgentState('LISTENING');
+    });
   }, [flushAudio]);
 
   const sendMessage = useCallback((text) => {
@@ -74,13 +78,11 @@ export function useDuetLive(wsUrl = 'ws://127.0.0.1:8000/ws/session', onCanvasAc
       socket.onmessage = async (event) => {
         if (!isMounted) return;
 
-        // 1. Accumulate audio chunks
         if (event.data instanceof Blob) {
           audioChunksRef.current.push(event.data);
           return;
         }
 
-        // 2. Control Messages
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'state') {
@@ -94,18 +96,18 @@ export function useDuetLive(wsUrl = 'ws://127.0.0.1:8000/ws/session', onCanvasAc
               audioChunksRef.current = [];
               playElevenLabsAudio(fullAudioBlob);
             }
-          } else if (msg.type === 'canvas_tool') {
-            if (msg.action === 'render_simulation') {
-              setActiveSimulation(msg.payload);
+          } else if ((msg.type === 'canvas_action' || msg.type === 'canvas_tool') && msg.action) {
+            const actionPayload = msg.action;
+            if (actionPayload.type === 'launch_simulation' || actionPayload.action === 'launch_simulation') {
+              setActiveSimulation(actionPayload);
             } else if (onCanvasAction) {
-              // Pass direct drawing actions to App.jsx canvas
-              onCanvasAction(msg.action, msg.payload);
+              onCanvasAction(actionPayload);
             }
           } else if (msg.type === 'interrupt_ack') {
             flushAudio();
           }
         } catch (err) {
-          console.error('WS message error:', err);
+          console.error('[useDuetLive] Message parse error:', err);
         }
       };
     }, 150);
@@ -117,10 +119,12 @@ export function useDuetLive(wsUrl = 'ws://127.0.0.1:8000/ws/session', onCanvasAc
     };
   }, [wsUrl, playElevenLabsAudio, flushAudio, onCanvasAction]);
 
-  // Continuous speech recognition that auto-restarts until user toggles off
   const startRecognition = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    if (!SpeechRecognition) {
+      console.warn('SpeechRecognition API not available in this browser.');
+      return;
+    }
 
     const rec = new SpeechRecognition();
     rec.continuous = true;
@@ -140,7 +144,6 @@ export function useDuetLive(wsUrl = 'ws://127.0.0.1:8000/ws/session', onCanvasAc
     };
 
     rec.onend = () => {
-      // Keep listening actively if user has not explicitly clicked mute
       if (isMicActiveRef.current) {
         try {
           rec.start();
@@ -160,9 +163,7 @@ export function useDuetLive(wsUrl = 'ws://127.0.0.1:8000/ws/session', onCanvasAc
     if (isMicActiveRef.current) {
       isMicActiveRef.current = false;
       setIsMicActive(false);
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
+      if (recognitionRef.current) recognitionRef.current.stop();
     } else {
       startRecognition();
     }
